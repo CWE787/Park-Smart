@@ -1,0 +1,1170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ParkSmart — Intelligent Parking System</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <style>
+        :root {
+            --bg: #0B0F19;
+            --bg2: #111827;
+            --card: #1A2035;
+            --card-hover: #212B45;
+            --border: #2A3454;
+            --text: #E8ECF4;
+            --muted: #6B7A99;
+            --accent: #00E68A;
+            --accent-dim: #00B36B;
+            --ev: #FF8C42;
+            --bike: #4ECDC4;
+            --danger: #FF4757;
+            --warning: #FFBE0B;
+        }
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { font-family:'Space Grotesk',sans-serif; background:var(--bg); color:var(--text); overflow-x:hidden; }
+        .mono { font-family:'JetBrains Mono',monospace; }
+
+        /* Splash */
+        #splash { position:fixed; inset:0; z-index:9999; background:var(--bg); display:flex; align-items:center; justify-content:center; flex-direction:column; transition: opacity .5s, visibility .5s; }
+        #splash.hide { opacity:0; visibility:hidden; }
+        .splash-ring { width:80px; height:80px; border:3px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin 1s linear infinite; }
+        @keyframes spin { to { transform:rotate(360deg); } }
+        .splash-text { margin-top:20px; font-size:1.5rem; font-weight:700; letter-spacing:2px; }
+        .splash-text span { color:var(--accent); }
+
+        /* Auth */
+        #auth { display:none; min-height:100vh; position:relative; overflow:hidden; }
+        #auth.active { display:flex; }
+        .auth-bg { position:absolute; inset:0; background: radial-gradient(ellipse at 20% 50%, rgba(0,230,138,0.08) 0%, transparent 60%), radial-gradient(ellipse at 80% 20%, rgba(78,205,196,0.06) 0%, transparent 50%), var(--bg); }
+        .auth-card { background:var(--card); border:1px solid var(--border); border-radius:16px; backdrop-filter:blur(20px); width:100%; max-width:440px; padding:40px; position:relative; z-index:1; }
+        .auth-input { width:100%; padding:12px 16px 12px 44px; background:var(--bg2); border:1px solid var(--border); border-radius:10px; color:var(--text); font-family:inherit; font-size:.95rem; outline:none; transition:border .2s; }
+        .auth-input:focus { border-color:var(--accent); }
+        .auth-input-wrap { position:relative; }
+        .auth-input-wrap i { position:absolute; left:14px; top:50%; transform:translateY(-50%); color:var(--muted); font-size:.9rem; }
+        .btn-primary { width:100%; padding:13px; background:var(--accent); color:#0B0F19; font-weight:700; font-size:1rem; border:none; border-radius:10px; cursor:pointer; transition:all .2s; font-family:inherit; }
+        .btn-primary:hover { background:var(--accent-dim); transform:translateY(-1px); box-shadow:0 4px 20px rgba(0,230,138,0.3); }
+        .auth-error { color:var(--danger); font-size:.82rem; min-height:20px; margin-top:4px; }
+        .tab-switch { color:var(--accent); cursor:pointer; font-weight:600; }
+        .tab-switch:hover { text-decoration:underline; }
+        select.auth-input { appearance:none; padding-left:44px; cursor:pointer; }
+
+        /* Dashboard */
+        #dashboard { display:none; height:100vh; flex-direction:column; }
+        #dashboard.active { display:flex; }
+        .dash-header { height:60px; background:var(--card); border-bottom:1px solid var(--border); display:flex; align-items:center; padding:0 20px; gap:16px; flex-shrink:0; z-index:500; }
+        .search-box { display:flex; align-items:center; background:var(--bg2); border:1px solid var(--border); border-radius:8px; padding:0 12px; flex:1; max-width:360px; }
+        .search-box input { background:transparent; border:none; color:var(--text); padding:8px; outline:none; font-family:inherit; width:100%; font-size:.9rem; }
+        .filter-btn { padding:6px 14px; border-radius:20px; border:1px solid var(--border); background:transparent; color:var(--muted); font-family:inherit; font-size:.82rem; cursor:pointer; transition:all .2s; white-space:nowrap; }
+        .filter-btn:hover { border-color:var(--accent); color:var(--text); }
+        .filter-btn.active { background:var(--accent); color:#0B0F19; border-color:var(--accent); font-weight:600; }
+        .live-dot { width:8px; height:8px; border-radius:50%; background:var(--accent); animation:pulse 2s infinite; }
+        @keyframes pulse { 0%,100%{ opacity:1; transform:scale(1); } 50%{ opacity:.5; transform:scale(1.4); } }
+        .user-btn { width:36px; height:36px; border-radius:50%; background:var(--accent); color:#0B0F19; display:flex; align-items:center; justify-content:center; font-weight:700; cursor:pointer; border:none; font-size:.85rem; transition:transform .2s; }
+        .user-btn:hover { transform:scale(1.1); }
+
+        /* Map */
+        #map { flex:1; z-index:1; }
+        .leaflet-container { background:var(--bg) !important; }
+        .custom-marker { background:none !important; border:none !important; }
+        .marker-pin { position:relative; width:44px; height:54px; display:flex; align-items:flex-start; justify-content:center; filter:drop-shadow(0 2px 6px rgba(0,0,0,.5)); transition:transform .2s; }
+        .marker-pin:hover { transform:scale(1.15) translateY(-3px); }
+        .marker-body { width:38px; height:38px; border-radius:50% 50% 50% 0; transform:rotate(-45deg); display:flex; align-items:center; justify-content:center; }
+        .marker-body span { transform:rotate(45deg); font-weight:800; font-size:1rem; color:#0B0F19; }
+        .marker-badge { position:absolute; top:-4px; right:-6px; min-width:20px; height:20px; border-radius:10px; background:var(--bg); border:2px solid var(--accent); color:var(--accent); font-size:.7rem; font-weight:700; display:flex; align-items:center; justify-content:center; padding:0 4px; }
+        .marker-pulse { position:absolute; bottom:-2px; left:50%; transform:translateX(-50%); width:12px; height:4px; border-radius:50%; background:rgba(0,230,138,.4); filter:blur(2px); animation:mpulse 2s infinite; }
+        @keyframes mpulse { 0%,100%{ opacity:.3; width:12px; } 50%{ opacity:.8; width:20px; } }
+
+        /* Side Panel */
+        #sidePanel { position:fixed; top:60px; right:0; width:400px; max-width:90vw; height:calc(100vh - 60px); background:var(--card); border-left:1px solid var(--border); z-index:400; transform:translateX(100%); transition:transform .35s cubic-bezier(.4,0,.2,1); overflow-y:auto; }
+        #sidePanel.open { transform:translateX(0); }
+        #sidePanel::-webkit-scrollbar { width:6px; }
+        #sidePanel::-webkit-scrollbar-thumb { background:var(--border); border-radius:3px; }
+        .stat-card { background:var(--bg2); border:1px solid var(--border); border-radius:12px; padding:14px; flex:1; text-align:center; cursor:pointer; transition:all .2s; }
+        .stat-card:hover { border-color:var(--accent); }
+        .stat-card.active { border-color:var(--accent); box-shadow:0 0 12px rgba(0,230,138,.15); }
+        .stat-card.ev-active { border-color:var(--ev); box-shadow:0 0 12px rgba(255,140,66,.15); }
+        .stat-card.bike-active { border-color:var(--bike); box-shadow:0 0 12px rgba(78,205,196,.15); }
+        .tab-btn { padding:8px 20px; border-radius:8px; border:1px solid var(--border); background:transparent; color:var(--muted); font-family:inherit; font-size:.85rem; cursor:pointer; transition:all .2s; }
+        .tab-btn.active-car { background:var(--accent); color:#0B0F19; border-color:var(--accent); font-weight:600; }
+        .tab-btn.active-ev { background:var(--ev); color:#0B0F19; border-color:var(--ev); font-weight:600; }
+        .tab-btn.active-bike { background:var(--bike); color:#0B0F19; border-color:var(--bike); font-weight:600; }
+
+        /* Slot Grid */
+        .slot-grid { display:grid; gap:6px; }
+        .slot-grid.cars { grid-template-columns:repeat(auto-fill, minmax(52px,1fr)); }
+        .slot-grid.evs { grid-template-columns:repeat(auto-fill, minmax(56px,1fr)); }
+        .slot-grid.bikes { grid-template-columns:repeat(auto-fill, minmax(42px,1fr)); }
+        .parking-slot { aspect-ratio:1; border-radius:6px; display:flex; flex-direction:column; align-items:center; justify-content:center; cursor:pointer; transition:all .2s; position:relative; font-size:.7rem; font-weight:600; border:2px solid transparent; }
+        .parking-slot.available { background:rgba(0,230,138,.1); border-color:rgba(0,230,138,.3); color:var(--accent); }
+        .parking-slot.available:hover { background:rgba(0,230,138,.2); border-color:var(--accent); transform:scale(1.08); box-shadow:0 0 12px rgba(0,230,138,.2); }
+        .parking-slot.occupied { background:rgba(255,71,87,.1); border-color:rgba(255,71,87,.25); color:var(--danger); cursor:default; }
+        .parking-slot.reserved { background:rgba(255,190,11,.12); border-color:rgba(255,190,11,.4); color:var(--warning); }
+        .parking-slot.selected { background:rgba(0,230,138,.25); border-color:var(--accent); box-shadow:0 0 16px rgba(0,230,138,.3); transform:scale(1.08); }
+        .slot-icon { font-size:.85rem; margin-bottom:2px; }
+        .ev-charging { position:absolute; top:2px; right:3px; font-size:.55rem; color:var(--ev); animation:pulse 1.5s infinite; }
+
+        /* Legend */
+        .legend-dot { width:10px; height:10px; border-radius:3px; flex-shrink:0; }
+
+        /* Book Button */
+        .btn-book { width:100%; padding:14px; border:none; border-radius:10px; font-family:inherit; font-size:.95rem; font-weight:700; cursor:pointer; transition:all .2s; }
+        .btn-book.enabled { background:var(--accent); color:#0B0F19; }
+        .btn-book.enabled:hover { background:var(--accent-dim); box-shadow:0 4px 20px rgba(0,230,138,.3); }
+        .btn-book.disabled { background:var(--border); color:var(--muted); cursor:not-allowed; }
+
+        /* Toast */
+        #toasts { position:fixed; top:70px; right:20px; z-index:9998; display:flex; flex-direction:column; gap:8px; }
+        .toast { padding:14px 20px; border-radius:10px; background:var(--card); border:1px solid var(--border); color:var(--text); font-size:.88rem; display:flex; align-items:center; gap:10px; animation:slideIn .3s ease; min-width:280px; box-shadow:0 8px 24px rgba(0,0,0,.4); }
+        .toast.success { border-left:3px solid var(--accent); }
+        .toast.error { border-left:3px solid var(--danger); }
+        .toast.info { border-left:3px solid var(--bike); }
+        @keyframes slideIn { from { transform:translateX(100%); opacity:0; } to { transform:translateX(0); opacity:1; } }
+        @keyframes slideOut { from { transform:translateX(0); opacity:1; } to { transform:translateX(100%); opacity:0; } }
+
+        /* Bookings Modal */
+        .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,.6); z-index:600; display:none; align-items:center; justify-content:center; backdrop-filter:blur(4px); }
+        .modal-overlay.active { display:flex; }
+        .modal-box { background:var(--card); border:1px solid var(--border); border-radius:16px; width:90%; max-width:500px; max-height:80vh; overflow-y:auto; padding:30px; }
+        .booking-card { background:var(--bg2); border:1px solid var(--border); border-radius:10px; padding:14px; margin-bottom:10px; display:flex; justify-content:space-between; align-items:center; }
+        .cancel-btn { padding:6px 14px; border-radius:6px; border:1px solid var(--danger); background:transparent; color:var(--danger); font-family:inherit; font-size:.8rem; cursor:pointer; transition:all .2s; }
+        .cancel-btn:hover { background:var(--danger); color:white; }
+
+        /* User dropdown */
+        .user-dropdown { position:absolute; top:52px; right:0; background:var(--card); border:1px solid var(--border); border-radius:10px; padding:8px; min-width:180px; display:none; z-index:510; box-shadow:0 8px 24px rgba(0,0,0,.4); }
+        .user-dropdown.show { display:block; }
+        .dropdown-item { padding:10px 14px; border-radius:6px; cursor:pointer; display:flex; align-items:center; gap:10px; font-size:.88rem; color:var(--text); transition:background .15s; }
+        .dropdown-item:hover { background:var(--bg2); }
+        .dropdown-item i { width:18px; text-align:center; color:var(--muted); }
+        .dropdown-item.danger { color:var(--danger); }
+        .dropdown-item.danger i { color:var(--danger); }
+
+        /* Stats bar */
+        .stats-bar { position:fixed; bottom:0; left:0; right:0; height:44px; background:var(--card); border-top:1px solid var(--border); z-index:500; display:flex; align-items:center; justify-content:center; gap:32px; font-size:.82rem; }
+
+        /* Responsive */
+        @media(max-width:640px) {
+            .auth-card { margin:16px; padding:28px 20px; }
+            .dash-header { padding:0 12px; gap:8px; }
+            .search-box { max-width:none; }
+            .filter-group { display:none; }
+            #sidePanel { width:100%; }
+            .stats-bar { gap:16px; font-size:.75rem; padding:0 12px; }
+        }
+
+        /* Reduced motion */
+        @media(prefers-reduced-motion:reduce) {
+            *, *::before, *::after { animation-duration:0.01ms !important; transition-duration:0.01ms !important; }
+        }
+    
+        /* Nearest Panel */
+        #nearestPanel { position:fixed; top:70px; left:16px; width:320px; max-width:calc(100vw - 32px); max-height:calc(100vh - 130px); background:var(--card); border:1px solid var(--border); border-radius:12px; z-index:400; overflow-y:auto; backdrop-filter:blur(12px); box-shadow:0 8px 32px rgba(0,0,0,.4); }
+        #nearestPanel::-webkit-scrollbar { width:4px; }
+        #nearestPanel::-webkit-scrollbar-thumb { background:var(--border); border-radius:2px; }
+        .nearest-item:hover { background:var(--bg2) !important; }
+
+        /* Live tracking button */
+        .live-track-btn { position:fixed; bottom:56px; right:16px; width:48px; height:48px; border-radius:50%; background:var(--bg2); border:1px solid var(--border); color:var(--muted); display:flex; align-items:center; justify-content:center; cursor:pointer; z-index:450; font-size:1.1rem; transition:all .2s; box-shadow:0 4px 16px rgba(0,0,0,.3); }
+        .live-track-btn:hover { transform:scale(1.1); border-color:var(--accent); color:var(--accent); }
+        .live-track-btn.active { background:var(--accent); color:#0B0F19; border-color:var(--accent); }
+
+        /* Center on me button */
+        .center-btn { position:fixed; bottom:112px; right:16px; width:44px; height:44px; border-radius:50%; background:var(--bg2); border:1px solid var(--border); color:var(--muted); display:flex; align-items:center; justify-content:center; cursor:pointer; z-index:450; font-size:1rem; transition:all .2s; box-shadow:0 4px 16px rgba(0,0,0,.3); }
+        .center-btn:hover { transform:scale(1.1); border-color:var(--accent); color:var(--accent); }
+
+        @keyframes locPulse { 0%,100%{ opacity:1; transform:scale(1); } 50%{ opacity:.5; transform:scale(1.3); } }
+
+        @media(max-width:640px) {
+            #nearestPanel { width:calc(100vw - 32px); top:66px; }
+        }
+
+    
+        /* Dark popup style */
+        .leaflet-popup-content-wrapper { background:var(--card) !important; color:var(--text) !important; border:1px solid var(--border) !important; border-radius:10px !important; }
+        .leaflet-popup-tip { background:var(--card) !important; border:1px solid var(--border) !important; }
+        .leaflet-popup-content { margin:10px 14px !important; font-family:'Space Grotesk',sans-serif !important; }
+
+    </style>
+<base target="_blank">
+</head>
+<body>
+    <!-- Splash Screen -->
+    <div id="splash">
+        <div class="splash-ring"></div>
+        <div class="splash-text">PARK<span>SMART</span></div>
+        <p style="color:var(--muted);margin-top:8px;font-size:.85rem;">Loading your smart parking experience...</p>
+    </div>
+
+    <!-- Auth Section -->
+    <div id="auth" class="items-center justify-center">
+        <div class="auth-bg"></div>
+        <!-- Login Form -->
+        <div id="loginForm" class="auth-card">
+            <div class="text-center mb-8">
+                <h1 class="text-2xl font-bold">PARK<span style="color:var(--accent)">SMART</span></h1>
+                <p style="color:var(--muted);margin-top:6px;font-size:.9rem;">Sign in to find your perfect spot</p>
+            </div>
+            <div class="space-y-4">
+                <div>
+                    <div class="auth-input-wrap">
+                        <i class="fas fa-envelope"></i>
+                        <input type="email" id="loginEmail" class="auth-input" placeholder="Email address">
+                    </div>
+                    <div class="auth-error" id="loginEmailErr"></div>
+                </div>
+                <div>
+                    <div class="auth-input-wrap">
+                        <i class="fas fa-lock"></i>
+                        <input type="password" id="loginPass" class="auth-input" placeholder="Password">
+                    </div>
+                    <div class="auth-error" id="loginPassErr"></div>
+                </div>
+                <div class="flex items-center justify-between text-sm" style="color:var(--muted)">
+                    <label class="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" id="rememberMe" class="accent-green-400"> Remember me
+                    </label>
+                </div>
+                <button class="btn-primary" onclick="handleLogin()">Sign In</button>
+                <p class="text-center text-sm" style="color:var(--muted)">
+                    Don't have an account? <span class="tab-switch" onclick="showRegister()">Create one</span>
+                </p>
+            </div>
+        </div>
+
+        <!-- Register Form -->
+        <div id="registerForm" class="auth-card" style="display:none">
+            <div class="text-center mb-6">
+                <h1 class="text-2xl font-bold">Create Account</h1>
+                <p style="color:var(--muted);margin-top:6px;font-size:.9rem;">Join ParkSmart for hassle-free parking</p>
+            </div>
+            <div class="space-y-3">
+                <div>
+                    <div class="auth-input-wrap">
+                        <i class="fas fa-user"></i>
+                        <input type="text" id="regName" class="auth-input" placeholder="Full name">
+                    </div>
+                    <div class="auth-error" id="regNameErr"></div>
+                </div>
+                <div>
+                    <div class="auth-input-wrap">
+                        <i class="fas fa-envelope"></i>
+                        <input type="email" id="regEmail" class="auth-input" placeholder="Email address">
+                    </div>
+                    <div class="auth-error" id="regEmailErr"></div>
+                </div>
+                <div>
+                    <div class="auth-input-wrap">
+                        <i class="fas fa-phone"></i>
+                        <input type="tel" id="regPhone" class="auth-input" placeholder="Phone number">
+                    </div>
+                    <div class="auth-error" id="regPhoneErr"></div>
+                </div>
+                <div>
+                    <div class="auth-input-wrap">
+                        <i class="fas fa-car"></i>
+                        <select id="regVehicle" class="auth-input">
+                            <option value="">Select vehicle type</option>
+                            <option value="car">Car</option>
+                            <option value="ev">Electric Vehicle (EV)</option>
+                            <option value="bike">Bike / Motorcycle</option>
+                        </select>
+                    </div>
+                    <div class="auth-error" id="regVehicleErr"></div>
+                </div>
+                <div>
+                    <div class="auth-input-wrap">
+                        <i class="fas fa-lock"></i>
+                        <input type="password" id="regPass" class="auth-input" placeholder="Password (min 6 chars)">
+                    </div>
+                    <div class="auth-error" id="regPassErr"></div>
+                </div>
+                <div>
+                    <div class="auth-input-wrap">
+                        <i class="fas fa-lock"></i>
+                        <input type="password" id="regConfirm" class="auth-input" placeholder="Confirm password">
+                    </div>
+                    <div class="auth-error" id="regConfirmErr"></div>
+                </div>
+                <button class="btn-primary" onclick="handleRegister()">Create Account</button>
+                <p class="text-center text-sm" style="color:var(--muted)">
+                    Already have an account? <span class="tab-switch" onclick="showLogin()">Sign in</span>
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Dashboard -->
+    <div id="dashboard">
+        <header class="dash-header">
+            <div class="flex items-center gap-2 font-bold text-lg flex-shrink-0">
+                PARK<span style="color:var(--accent)">SMART</span>
+            </div>
+            <div class="search-box">
+                <i class="fas fa-search" style="color:var(--muted);font-size:.85rem"></i>
+                <input type="text" id="searchInput" placeholder="Search parking in Chennai, Poonamallee, Thiruvallur..." oninput="handleSearch(this.value)">
+            </div>
+            <div class="flex gap-2 filter-group" id="filterGroup">
+                <button class="filter-btn active" data-filter="all" onclick="setFilter('all',this)">All</button>
+                <button class="filter-btn" data-filter="car" onclick="setFilter('car',this)"><i class="fas fa-car" style="margin-right:4px"></i>Cars</button>
+                <button class="filter-btn" data-filter="ev" onclick="setFilter('ev',this)"><i class="fas fa-bolt" style="margin-right:4px"></i>EVs</button>
+                <button class="filter-btn" data-filter="bike" onclick="setFilter('bike',this)"><i class="fas fa-motorcycle" style="margin-right:4px"></i>Bikes</button>
+            </div>
+            <div class="flex items-center gap-2 flex-shrink-0" style="color:var(--muted);font-size:.8rem">
+                <div class="live-dot"></div>
+                <span>LIVE</span>
+            </div>
+            <div style="position:relative;flex-shrink:0">
+                <button class="user-btn" id="userBtn" onclick="toggleDropdown()" aria-label="User menu"></button>
+                <div class="user-dropdown" id="userDropdown">
+                    <div style="padding:10px 14px;border-bottom:1px solid var(--border);margin-bottom:4px">
+                        <div class="font-semibold text-sm" id="dropdownName"></div>
+                        <div style="color:var(--muted);font-size:.78rem" id="dropdownEmail"></div>
+                    </div>
+                    <div class="dropdown-item" onclick="openBookings()"><i class="fas fa-ticket"></i> My Bookings</div>
+                    <div class="dropdown-item danger" onclick="handleLogout()"><i class="fas fa-sign-out-alt"></i> Sign Out</div>
+                </div>
+            </div>
+        </header>
+        <div id="map"></div>
+        <div class="stats-bar" id="statsBar"></div>
+    </div>
+
+    <!-- Side Panel -->
+    <div id="sidePanel" role="dialog" aria-label="Parking details">
+        <div id="panelContent"></div>
+    </div>
+
+    <!-- Bookings Modal -->
+    <div class="modal-overlay" id="bookingsModal">
+        <div class="modal-box">
+            <div class="flex items-center justify-between mb-5">
+                <h2 class="text-lg font-bold">My Bookings</h2>
+                <button onclick="closeBookings()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:1.2rem" aria-label="Close"><i class="fas fa-times"></i></button>
+            </div>
+            <div id="bookingsList"></div>
+        </div>
+    </div>
+
+    <!-- Nearest Parking Panel -->
+    <div id="nearestPanel">
+        <div style="padding:16px;text-align:center;color:var(--muted);font-size:.85rem">
+            <i class="fas fa-location-arrow" style="font-size:1.2rem;margin-bottom:8px;display:block;opacity:.5"></i>
+            Click the location button to find nearest parking
+        </div>
+    </div>
+
+    <!-- Center on User Button -->
+    <button class="center-btn" id="centerBtn" onclick="centerOnUser()" title="Center on my location" aria-label="Center on my location">
+        <i class="fas fa-crosshairs"></i>
+    </button>
+
+    <!-- Live Tracking Toggle -->
+    <button class="live-track-btn" id="liveTrackBtn" onclick="toggleLiveTracking()" title="Toggle live location tracking" aria-label="Toggle live location tracking">
+        <i class="fas fa-location-arrow"></i>
+    </button>
+
+    <!-- Toasts -->
+    <div id="toasts" aria-live="polite"></div>
+
+    <script>
+    // ==================== STATE ====================
+    let currentUser = null;
+    let map = null;
+    let markers = {};
+    let selectedLocation = null;
+    let selectedSlot = null;
+    let activeTab = 'car';
+    let activeFilter = 'all';
+    let bookings = JSON.parse(localStorage.getItem('ps_bookings') || '[]');
+    let simInterval = null;
+
+    // ==================== PARKING DATA ====================
+    const locations = [
+        // ===== MAIN CHENNAI LOCATIONS =====
+        { id:1, name:"T Nagar Shopping Complex", address:"Panagal Park, T Nagar, Chennai", lat:13.0418, lng:80.2341, hours:"6:00 AM – 11:00 PM", rate:"₹40/hr", carTotal:80, evTotal:15, bikeTotal:50, carOcc:.55, evOcc:.20, bikeOcc:.35, types:['car','ev','bike'] },
+        { id:2, name:"Marina Beach Parking", address:"Kamarajar Salai, Marina Beach, Chennai", lat:13.0500, lng:80.2824, hours:"5:00 AM – 12:00 AM", rate:"₹30/hr", carTotal:60, evTotal:10, bikeTotal:80, carOcc:.45, evOcc:.15, bikeOcc:.40, types:['car','ev','bike'] },
+        { id:3, name:"Express Avenue Mall", address:"Whites Road, Royapettah, Chennai", lat:13.0561, lng:80.2610, hours:"10:00 AM – 10:00 PM", rate:"₹50/hr", carTotal:120, evTotal:25, bikeTotal:60, carOcc:.65, evOcc:.25, bikeOcc:.50, types:['car','ev','bike'] },
+        { id:4, name:"Anna Nagar Tower Park", address:"2nd Avenue, Anna Nagar, Chennai", lat:13.0850, lng:80.2101, hours:"5:00 AM – 9:00 PM", rate:"₹25/hr", carTotal:40, evTotal:8, bikeTotal:45, carOcc:.35, evOcc:.10, bikeOcc:.30, types:['car','ev','bike'] },
+        { id:5, name:"Chennai Central Station", address:"EVR Periyar Salai, Park Town, Chennai", lat:13.0827, lng:80.2707, hours:"24 Hours", rate:"₹35/hr", carTotal:100, evTotal:20, bikeTotal:70, carOcc:.70, evOcc:.30, bikeOcc:.55, types:['car','ev','bike'] },
+        { id:6, name:"Phoenix Marketcity", address:"Velachery Main Road, Velachery, Chennai", lat:12.9915, lng:80.2167, hours:"10:00 AM – 10:00 PM", rate:"₹45/hr", carTotal:150, evTotal:30, bikeTotal:80, carOcc:.60, evOcc:.20, bikeOcc:.45, types:['car','ev','bike'] },
+        { id:7, name:"Guindy National Park", address:"Guindy, Chennai", lat:13.0067, lng:80.2206, hours:"6:00 AM – 6:00 PM", rate:"₹20/hr", carTotal:35, evTotal:5, bikeTotal:40, carOcc:.40, evOcc:.10, bikeOcc:.25, types:['car','ev','bike'] },
+        { id:8, name:"Besant Nagar Beach", address:"Elliot's Beach Road, Besant Nagar, Chennai", lat:13.0006, lng:80.2707, hours:"5:00 AM – 11:00 PM", rate:"₹30/hr", carTotal:50, evTotal:10, bikeTotal:60, carOcc:.50, evOcc:.15, bikeOcc:.35, types:['car','ev','bike'] },
+
+        // ===== LOCAL WEST CHENNAI / POONAMALLEE / TIRUVALLUR AREA =====
+        { id:9, name:"Poonamallee Bus Stand Parking", address:"Poonamallee High Road, Poonamallee, Chennai", lat:13.0473, lng:80.0945, hours:"5:00 AM – 11:00 PM", rate:"₹15/hr", carTotal:30, evTotal:5, bikeTotal:40, carOcc:.40, evOcc:.10, bikeOcc:.30, types:['car','ev','bike'] },
+        { id:10, name:"Poonamallee RTO Complex", address:"RTO Office, Poonamallee, Chennai", lat:13.0475, lng:80.1120, hours:"9:00 AM – 5:00 PM", rate:"₹20/hr", carTotal:25, evTotal:8, bikeTotal:20, carOcc:.35, evOcc:.15, bikeOcc:.25, types:['car','ev','bike'] },
+        { id:11, name:"Thiruvallur Railway Station", address:"JN Road, Thiruvallur, Chennai", lat:13.1231, lng:79.9120, hours:"24 Hours", rate:"₹15/hr", carTotal:40, evTotal:10, bikeTotal:35, carOcc:.45, evOcc:.20, bikeOcc:.35, types:['car','ev','bike'] },
+        { id:12, name:"Thiruvallur Bus Stand", address:"Kakkalur, Thiruvallur, Chennai", lat:13.1444, lng:79.8940, hours:"5:00 AM – 10:00 PM", rate:"₹12/hr", carTotal:25, evTotal:5, bikeTotal:30, carOcc:.30, evOcc:.10, bikeOcc:.20, types:['car','ev','bike'] },
+        { id:13, name:"Avadi Railway Station", address:"Station Road, Avadi, Chennai", lat:13.1147, lng:80.0896, hours:"24 Hours", rate:"₹15/hr", carTotal:35, evTotal:8, bikeTotal:40, carOcc:.40, evOcc:.15, bikeOcc:.30, types:['car','ev','bike'] },
+        { id:14, name:"Avadi Market Complex", address:"HVF Road, Avadi, Chennai", lat:13.1160, lng:80.0950, hours:"6:00 AM – 9:00 PM", rate:"₹10/hr", carTotal:20, evTotal:4, bikeTotal:25, carOcc:.35, evOcc:.10, bikeOcc:.25, types:['car','ev','bike'] },
+        { id:15, name:"Ambattur Industrial Estate", address:"Ambattur, Chennai", lat:13.0980, lng:80.1610, hours:"7:00 AM – 7:00 PM", rate:"₹20/hr", carTotal:50, evTotal:15, bikeTotal:30, carOcc:.55, evOcc:.25, bikeOcc:.40, types:['car','ev','bike'] },
+        { id:16, name:"Ambattur OT Bus Stand", address:"Ambattur OT, Chennai", lat:13.1060, lng:80.1480, hours:"5:00 AM – 11:00 PM", rate:"₹12/hr", carTotal:25, evTotal:5, bikeTotal:35, carOcc:.30, evOcc:.10, bikeOcc:.25, types:['car','ev','bike'] },
+        { id:17, name:"Porur Junction Parking", address:"Mount Poonamallee Road, Porur, Chennai", lat:13.0381, lng:80.1596, hours:"6:00 AM – 10:00 PM", rate:"₹18/hr", carTotal:35, evTotal:8, bikeTotal:30, carOcc:.45, evOcc:.15, bikeOcc:.35, types:['car','ev','bike'] },
+        { id:18, name:"Porur Ramachandra Hospital", address:"Porur, Chennai", lat:13.0352, lng:80.1586, hours:"24 Hours", rate:"₹25/hr", carTotal:60, evTotal:12, bikeTotal:40, carOcc:.50, evOcc:.20, bikeOcc:.40, types:['car','ev','bike'] },
+        { id:19, name:"Koyambedu CMBT", address:"Chennai Mofussil Bus Terminus, Koyambedu", lat:13.0728, lng:80.1762, hours:"24 Hours", rate:"₹30/hr", carTotal:100, evTotal:20, bikeTotal:80, carOcc:.65, evOcc:.25, bikeOcc:.50, types:['car','ev','bike'] },
+        { id:20, name:"Koyambedu Market", address:"Koyambedu Wholesale Market Complex, Chennai", lat:13.0678, lng:80.1931, hours:"4:00 AM – 10:00 PM", rate:"₹20/hr", carTotal:80, evTotal:10, bikeTotal:60, carOcc:.55, evOcc:.15, bikeOcc:.45, types:['car','ev','bike'] },
+        { id:21, name:"Mogappair East", address:"Mogappair East, Chennai", lat:13.0805, lng:80.1801, hours:"6:00 AM – 10:00 PM", rate:"₹15/hr", carTotal:30, evTotal:6, bikeTotal:25, carOcc:.35, evOcc:.10, bikeOcc:.25, types:['car','ev','bike'] },
+        { id:22, name:"Mogappair West", address:"Mogappair West, Chennai", lat:13.0818, lng:80.1687, hours:"6:00 AM – 10:00 PM", rate:"₹15/hr", carTotal:25, evTotal:5, bikeTotal:20, carOcc:.30, evOcc:.10, bikeOcc:.20, types:['car','ev','bike'] },
+        { id:23, name:"Maduravoyal Toll Plaza", address:"Maduravoyal, Chennai", lat:13.0650, lng:80.1650, hours:"24 Hours", rate:"₹18/hr", carTotal:40, evTotal:10, bikeTotal:35, carOcc:.40, evOcc:.15, bikeOcc:.30, types:['car','ev','bike'] },
+        { id:24, name:"Iyyappanthangal Bus Stand", address:"Iyyappanthangal, Chennai", lat:13.0350, lng:80.1350, hours:"5:00 AM – 10:00 PM", rate:"₹12/hr", carTotal:20, evTotal:4, bikeTotal:25, carOcc:.30, evOcc:.10, bikeOcc:.20, types:['car','ev','bike'] },
+        { id:25, name:"Pattabiram Railway Station", address:"Pattabiram, Chennai", lat:13.1250, lng:80.0650, hours:"24 Hours", rate:"₹10/hr", carTotal:15, evTotal:3, bikeTotal:20, carOcc:.25, evOcc:.10, bikeOcc:.20, types:['car','ev','bike'] },
+        { id:26, name:"Thirumullaivoyal", address:"Thirumullaivoyal, Chennai", lat:13.1300, lng:80.1300, hours:"6:00 AM – 9:00 PM", rate:"₹12/hr", carTotal:20, evTotal:4, bikeTotal:25, carOcc:.30, evOcc:.10, bikeOcc:.20, types:['car','ev','bike'] },
+    ];
+
+    // Generate slot grids for each location
+    function generateSlots(prefix, count, occRate) {
+        const slots = [];
+        for (let i = 1; i <= count; i++) {
+            slots.push({ id: `${prefix}${i}`, status: Math.random() < occRate ? 'occupied' : 'available' });
+        }
+        return slots;
+    }
+
+    function initLocationSlots() {
+        locations.forEach(loc => {
+            loc.carSlots = generateSlots('C', loc.carTotal, loc.carOcc);
+            loc.evSlots = generateSlots('E', loc.evTotal, loc.evOcc).map(s => ({...s, charging: s.status === 'occupied' ? Math.random() > 0.3 : false}));
+            loc.bikeSlots = generateSlots('B', loc.bikeTotal, loc.bikeOcc);
+        });
+        // Restore reserved slots from bookings
+        bookings.forEach(b => {
+            const loc = locations.find(l => l.id === b.locationId);
+            if (!loc) return;
+            let slots;
+            if (b.type === 'car') slots = loc.carSlots;
+            else if (b.type === 'ev') slots = loc.evSlots;
+            else slots = loc.bikeSlots;
+            const slot = slots.find(s => s.id === b.slotId);
+            if (slot) slot.status = 'reserved';
+        });
+    }
+
+// ===== DISTANCE & NEAREST PARKING FUNCTIONS =====
+function getDistanceFromLatLng(lat1, lng1, lat2, lng2) {
+    const R = 6371; // Earth radius in km
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLng = (lng2 - lng1) * Math.PI / 180;
+    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+              Math.sin(dLng/2) * Math.sin(dLng/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c; // distance in km
+}
+
+function formatDistance(km) {
+    if (km < 1) return Math.round(km * 1000) + ' m';
+    return km.toFixed(1) + ' km';
+}
+
+function getNearestLocations(userLat, userLng, limit = 5) {
+    return locations.map(loc => {
+        const dist = getDistanceFromLatLng(userLat, userLng, loc.lat, loc.lng);
+        const totalAvail = getTotalAvailable(loc);
+        return { ...loc, distance: dist, totalAvail };
+    })
+    .filter(loc => loc.totalAvail > 0)
+    .sort((a, b) => a.distance - b.distance)
+    .slice(0, limit);
+}
+
+function updateNearestPanel() {
+    if (!userLocation) return;
+    nearestLocations = getNearestLocations(userLocation.lat, userLocation.lng, 5);
+    renderNearestPanel();
+}
+
+function renderNearestPanel() {
+    const panel = document.getElementById('nearestPanel');
+    if (!panel) return;
+
+    if (!userLocation) {
+        panel.innerHTML = `
+            <div style="padding:16px;text-align:center;color:var(--muted);font-size:.85rem">
+                <i class="fas fa-location-arrow" style="font-size:1.2rem;margin-bottom:8px;display:block;opacity:.5"></i>
+                Enable location to find nearest parking
+            </div>`;
+        return;
+    }
+
+    if (nearestLocations.length === 0) {
+        panel.innerHTML = `
+            <div style="padding:16px;text-align:center;color:var(--muted);font-size:.85rem">
+                <i class="fas fa-search" style="font-size:1.2rem;margin-bottom:8px;display:block;opacity:.5"></i>
+                No parking spots found nearby
+            </div>`;
+        return;
+    }
+
+    let html = '<div style="padding:12px 16px;border-bottom:1px solid var(--border)"><div style="font-size:.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:1px;font-weight:600">Nearest to You</div></div>';
+
+    nearestLocations.forEach((loc, idx) => {
+        const color = idx === 0 ? 'var(--accent)' : 'var(--muted)';
+        const badge = idx === 0 ? '<span style="background:var(--accent);color:#0B0F19;font-size:.65rem;padding:1px 6px;border-radius:4px;font-weight:700;margin-left:6px">CLOSEST</span>' : '';
+        const totalAvail = getTotalAvailable(loc);
+        html += `
+            <div class="nearest-item" onclick="flyToLocation(${loc.id})" style="padding:12px 16px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .15s" onmouseover="this.style.background='var(--bg2)'" onmouseout="this.style.background='transparent'">
+                <div style="display:flex;align-items:center;justify-content:space-between">
+                    <div style="flex:1;min-width:0">
+                        <div style="font-size:.88rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${loc.name}${badge}</div>
+                        <div style="font-size:.75rem;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${loc.address}</div>
+                    </div>
+                    <div style="text-align:right;flex-shrink:0;margin-left:10px">
+                        <div class="mono" style="font-size:.9rem;font-weight:700;color:${color}">${formatDistance(loc.distance)}</div>
+                        <div style="font-size:.72rem;color:var(--muted)">${totalAvail} slots free</div>
+                    </div>
+                </div>
+            </div>`;
+    });
+
+    panel.innerHTML = html;
+}
+
+function flyToLocation(locId) {
+    const loc = locations.find(l => l.id === locId);
+    if (!loc || !map) return;
+    map.flyTo([loc.lat, loc.lng], 16, { duration: 1.5 });
+    openPanel(loc);
+    // Highlight the marker
+    const marker = markers[loc.id];
+    if (marker) {
+        marker.openPopup && marker.openPopup();
+    }
+}
+
+// ===== LIVE LOCATION TRACKING =====
+function startLiveTracking() {
+    if (!navigator.geolocation) {
+        showToast('Geolocation not supported by your browser', 'error');
+        return;
+    }
+
+    // Get initial position
+    navigator.geolocation.getCurrentPosition(
+        (pos) => {
+            userLocation = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+            addUserLocationMarker();
+            updateNearestPanel();
+            showToast('Live location tracking enabled!', 'success');
+        },
+        (err) => {
+            console.warn('Location error:', err);
+            showToast('Could not get your location. Please allow location access.', 'error');
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+
+    // Watch for position changes
+    locationWatchId = navigator.geolocation.watchPosition(
+        (pos) => {
+            const newLoc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+            // Only update if moved more than 50 meters
+            if (userLocation && getDistanceFromLatLng(userLocation.lat, userLocation.lng, newLoc.lat, newLoc.lng) < 0.05) return;
+            userLocation = newLoc;
+            updateUserLocationMarker();
+            updateNearestPanel();
+        },
+        (err) => console.warn('Watch position error:', err),
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
+    );
+}
+
+function stopLiveTracking() {
+    if (locationWatchId !== null) {
+        navigator.geolocation.clearWatch(locationWatchId);
+        locationWatchId = null;
+    }
+    if (userLocationMarker) {
+        map.removeLayer(userLocationMarker);
+        userLocationMarker = null;
+    }
+    userLocation = null;
+    updateNearestPanel();
+}
+
+function addUserLocationMarker() {
+    if (!userLocation || !map) return;
+
+    const userIcon = L.divIcon({
+        className: 'custom-marker',
+        html: `<div style="position:relative;width:24px;height:24px;">
+            <div style="width:24px;height:24px;border-radius:50%;background:#3B82F6;border:3px solid white;box-shadow:0 0 0 4px rgba(59,130,246,.3),0 2px 8px rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;">
+                <i class="fas fa-user" style="color:white;font-size:.6rem"></i>
+            </div>
+            <div style="position:absolute;top:-4px;left:-4px;right:-4px;bottom:-4px;border-radius:50%;border:2px solid #3B82F6;animation:locPulse 2s infinite"></div>
+        </div>`,
+        iconSize: [24, 24],
+        iconAnchor: [12, 12]
+    });
+
+    userLocationMarker = L.marker([userLocation.lat, userLocation.lng], { icon: userIcon, zIndexOffset: 1000 }).addTo(map);
+
+    // Add accuracy circle
+    const accuracyCircle = L.circle([userLocation.lat, userLocation.lng], {
+        radius: 100,
+        color: '#3B82F6',
+        fillColor: '#3B82F6',
+        fillOpacity: 0.1,
+        weight: 1
+    }).addTo(map);
+    userLocationMarker.accuracyCircle = accuracyCircle;
+}
+
+function updateUserLocationMarker() {
+    if (!userLocation || !userLocationMarker) {
+        addUserLocationMarker();
+        return;
+    }
+    userLocationMarker.setLatLng([userLocation.lat, userLocation.lng]);
+    if (userLocationMarker.accuracyCircle) {
+        userLocationMarker.accuracyCircle.setLatLng([userLocation.lat, userLocation.lng]);
+    }
+}
+
+function centerOnUser() {
+    if (!userLocation || !map) {
+        showToast('Location not available. Enable live tracking first.', 'error');
+        startLiveTracking();
+        return;
+    }
+    map.flyTo([userLocation.lat, userLocation.lng], 15, { duration: 1 });
+}
+
+function toggleLiveTracking() {
+    const btn = document.getElementById('liveTrackBtn');
+    if (locationWatchId !== null) {
+        stopLiveTracking();
+        if (btn) {
+            btn.innerHTML = '<i class="fas fa-location-arrow"></i>';
+            btn.style.background = 'var(--bg2)';
+            btn.style.color = 'var(--muted)';
+        }
+        showToast('Live tracking stopped', 'info');
+    } else {
+        startLiveTracking();
+        if (btn) {
+            btn.innerHTML = '<i class="fas fa-location-arrow" style="animation:pulse 1s infinite"></i>';
+            btn.style.background = 'var(--accent)';
+            btn.style.color = '#0B0F19';
+        }
+    }
+}
+
+
+
+    function getAvailable(loc, type) {
+        const slots = type === 'car' ? loc.carSlots : type === 'ev' ? loc.evSlots : loc.bikeSlots;
+        return slots.filter(s => s.status === 'available').length;
+    }
+    function getTotal(loc, type) {
+        return type === 'car' ? loc.carTotal : type === 'ev' ? loc.evTotal : loc.bikeTotal;
+    }
+    function getTotalAvailable(loc) {
+        return getAvailable(loc,'car') + getAvailable(loc,'ev') + getAvailable(loc,'bike');
+    }
+    function getTotalSlots(loc) {
+        return loc.carTotal + loc.evTotal + loc.bikeTotal;
+    }
+
+    // ==================== AUTH ====================
+    function showLogin() {
+        document.getElementById('loginForm').style.display = 'block';
+        document.getElementById('registerForm').style.display = 'none';
+        clearAuthErrors();
+    }
+    function showRegister() {
+        document.getElementById('loginForm').style.display = 'none';
+        document.getElementById('registerForm').style.display = 'block';
+        clearAuthErrors();
+    }
+    function clearAuthErrors() {
+        document.querySelectorAll('.auth-error').forEach(e => e.textContent = '');
+    }
+
+    function handleRegister() {
+        clearAuthErrors();
+        const name = document.getElementById('regName').value.trim();
+        const email = document.getElementById('regEmail').value.trim();
+        const phone = document.getElementById('regPhone').value.trim();
+        const vehicle = document.getElementById('regVehicle').value;
+        const pass = document.getElementById('regPass').value;
+        const confirm = document.getElementById('regConfirm').value;
+        let valid = true;
+
+        if (!name || name.length < 2) { document.getElementById('regNameErr').textContent = 'Enter a valid name'; valid = false; }
+        if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { document.getElementById('regEmailErr').textContent = 'Enter a valid email'; valid = false; }
+        if (!phone || phone.length < 7) { document.getElementById('regPhoneErr').textContent = 'Enter a valid phone number'; valid = false; }
+        if (!vehicle) { document.getElementById('regVehicleErr').textContent = 'Select a vehicle type'; valid = false; }
+        if (pass.length < 6) { document.getElementById('regPassErr').textContent = 'Minimum 6 characters'; valid = false; }
+        if (pass !== confirm) { document.getElementById('regConfirmErr').textContent = 'Passwords do not match'; valid = false; }
+
+        if (!valid) return;
+
+        // Store user
+        const users = JSON.parse(localStorage.getItem('ps_users') || '[]');
+        if (users.find(u => u.email === email)) {
+            document.getElementById('regEmailErr').textContent = 'Email already registered';
+            return;
+        }
+        const user = { name, email, phone, vehicle, pass: btoa(pass) };
+        users.push(user);
+        localStorage.setItem('ps_users', JSON.stringify(users));
+        showToast('Account created successfully! Please sign in.', 'success');
+        showLogin();
+        document.getElementById('loginEmail').value = email;
+    }
+
+    function handleLogin() {
+        clearAuthErrors();
+        const email = document.getElementById('loginEmail').value.trim();
+        const pass = document.getElementById('loginPass').value;
+        let valid = true;
+
+        if (!email) { document.getElementById('loginEmailErr').textContent = 'Email is required'; valid = false; }
+        if (!pass) { document.getElementById('loginPassErr').textContent = 'Password is required'; valid = false; }
+        if (!valid) return;
+
+        const users = JSON.parse(localStorage.getItem('ps_users') || '[]');
+        const user = users.find(u => u.email === email && atob(u.pass) === pass);
+        if (!user) {
+            document.getElementById('loginPassErr').textContent = 'Invalid email or password';
+            return;
+        }
+        currentUser = user;
+        if (document.getElementById('rememberMe').checked) {
+            localStorage.setItem('ps_session', JSON.stringify({ email: user.email }));
+        }
+        enterDashboard();
+    }
+
+    function handleLogout() {
+        currentUser = null;
+        localStorage.removeItem('ps_session');
+        closeDropdown();
+        document.getElementById('dashboard').classList.remove('active');
+        document.getElementById('auth').classList.add('active');
+        showLogin();
+        // Clear form fields
+        document.getElementById('loginEmail').value = '';
+        document.getElementById('loginPass').value = '';
+        // Stop simulation
+        if (simInterval) clearInterval(simInterval);
+        // Remove markers
+        Object.values(markers).forEach(m => map && map.removeLayer(m));
+        markers = {};
+        selectedLocation = null;
+        closePanel();
+    }
+
+    function checkSession() {
+        const session = JSON.parse(localStorage.getItem('ps_session') || 'null');
+        if (session) {
+            const users = JSON.parse(localStorage.getItem('ps_users') || '[]');
+            const user = users.find(u => u.email === session.email);
+            if (user) { currentUser = user; return true; }
+        }
+        return false;
+    }
+
+    function enterDashboard() {
+        document.getElementById('auth').classList.remove('active');
+        document.getElementById('dashboard').classList.add('active');
+        document.getElementById('userBtn').textContent = currentUser.name.charAt(0).toUpperCase();
+        document.getElementById('dropdownName').textContent = currentUser.name;
+        document.getElementById('dropdownEmail').textContent = currentUser.email;
+        initLocationSlots();
+        setTimeout(() => {
+            initMap();
+            updateStatsBar();
+            startSimulation();
+        }, 100);
+    }
+
+    // ==================== MAP ====================
+    function initMap() {
+        if (map) { map.remove(); map = null; }
+        map = L.map('map', {
+            center: [13.0600, 80.1500],
+            zoom: 12,
+            zoomControl: false
+        });
+        L.control.zoom({ position: 'bottomright' }).addTo(map);
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; OpenStreetMap &copy; CARTO',
+            maxZoom: 19
+        }).addTo(map);
+        addMarkers();
+    }
+
+    function getMarkerColor(loc) {
+        const total = getTotalAvailable(loc);
+        const all = getTotalSlots(loc);
+        const pct = all > 0 ? total / all : 0;
+        if (pct > 0.4) return '#00E68A';
+        if (pct > 0.15) return '#FFBE0B';
+        return '#FF4757';
+    }
+
+    function createMarkerIcon(loc) {
+        const color = getMarkerColor(loc);
+        const avail = getTotalAvailable(loc);
+        return L.divIcon({
+            className: 'custom-marker',
+            html: `<div class="marker-pin">
+                       <div class="marker-body" style="background:${color}"><span>P</span></div>
+                       <div class="marker-badge" style="border-color:${color};color:${color}">${avail}</div>
+                       <div class="marker-pulse" style="background:${color}44"></div>
+                   </div>`,
+            iconSize: [44, 54],
+            iconAnchor: [22, 54],
+            popupAnchor: [0, -54]
+        });
+    }
+
+    function addMarkers() {
+        const query = (document.getElementById('searchInput').value || '').toLowerCase();
+        locations.forEach(loc => {
+            if (markers[loc.id]) { map.removeLayer(markers[loc.id]); delete markers[loc.id]; }
+            // Apply search filter
+            if (query && !loc.name.toLowerCase().includes(query) && !loc.address.toLowerCase().includes(query)) return;
+            // Apply type filter
+            if (activeFilter !== 'all' && !loc.types.includes(activeFilter)) return;
+
+            const icon = createMarkerIcon(loc);
+            const marker = L.marker([loc.lat, loc.lng], { icon }).addTo(map);
+
+            // Add popup with distance if user location available
+            let popupContent = `<div style="font-weight:700;font-size:.9rem">${loc.name}</div><div style="font-size:.75rem;color:#888;margin-top:2px">${loc.address}</div>`;
+            if (userLocation) {
+                const dist = getDistanceFromLatLng(userLocation.lat, userLocation.lng, loc.lat, loc.lng);
+                popupContent += `<div style="font-size:.8rem;color:var(--accent);margin-top:4px;font-weight:600"><i class="fas fa-location-arrow" style="margin-right:4px"></i>${formatDistance(dist)} away</div>`;
+            }
+            popupContent += `<div style="font-size:.75rem;color:#888;margin-top:4px">${getTotalAvailable(loc)} slots available</div>`;
+            marker.bindPopup(popupContent, { offset: [0, -10], className: 'dark-popup' });
+
+            marker.on('click', () => openPanel(loc));
+            markers[loc.id] = marker;
+        });
+        // Update nearest panel
+        updateNearestPanel();
+    }
+
+    function updateMarker(loc) {
+        const marker = markers[loc.id];
+        if (!marker) return;
+        marker.setIcon(createMarkerIcon(loc));
+    }
+
+    // ==================== SIDE PANEL ====================
+    function openPanel(loc) {
+        selectedLocation = loc;
+        selectedSlot = null;
+        activeTab = loc.types[0] || 'car';
+        renderPanel();
+        document.getElementById('sidePanel').classList.add('open');
+    }
+    function closePanel() {
+        document.getElementById('sidePanel').classList.remove('open');
+        selectedLocation = null;
+        selectedSlot = null;
+    }
+
+    function renderPanel() {
+        if (!selectedLocation) return;
+        const loc = selectedLocation;
+        const carAvail = getAvailable(loc, 'car');
+        const evAvail = getAvailable(loc, 'ev');
+        const bikeAvail = getAvailable(loc, 'bike');
+        const tabs = loc.types;
+        const currentSlots = activeTab === 'car' ? loc.carSlots : activeTab === 'ev' ? loc.evSlots : loc.bikeSlots;
+        const currentAvail = activeTab === 'car' ? carAvail : activeTab === 'ev' ? evAvail : bikeAvail;
+        const currentTotal = activeTab === 'car' ? loc.carTotal : activeTab === 'ev' ? loc.evTotal : loc.bikeTotal;
+
+        let tabBtns = tabs.map(t => {
+            const cls = t === activeTab ? `active-${t}` : '';
+            const icon = t === 'car' ? 'fa-car' : t === 'ev' ? 'fa-bolt' : 'fa-motorcycle';
+            return `<button class="tab-btn ${cls}" onclick="switchTab('${t}')"><i class="fas ${icon}" style="margin-right:5px"></i>${t === 'ev' ? 'EVs' : t === 'car' ? 'Cars' : 'Bikes'}</button>`;
+        }).join('');
+
+        let slotHtml = '';
+        if (currentTotal > 0) {
+            const gridCls = activeTab === 'car' ? 'cars' : activeTab === 'ev' ? 'evs' : 'bikes';
+            const icon = activeTab === 'car' ? 'fa-car' : activeTab === 'ev' ? 'fa-bolt' : 'fa-motorcycle';
+            slotHtml = `<div class="slot-grid ${gridCls}">`;
+            currentSlots.forEach(s => {
+                const selCls = selectedSlot && selectedSlot.id === s.id ? 'selected' : '';
+                const clickAction = s.status === 'available' ? `onclick="selectSlot('${s.id}')"` : '';
+                slotHtml += `<div class="parking-slot ${s.status} ${selCls}" ${clickAction} title="${s.id} - ${s.status}">
+                    <i class="fas ${icon} slot-icon"></i>
+                    <span class="mono" style="font-size:.6rem">${s.id}</span>
+                    ${activeTab === 'ev' && s.charging ? '<i class="fas fa-bolt ev-charging"></i>' : ''}
+                </div>`;
+            });
+            slotHtml += `</div>`;
+        } else {
+            slotHtml = `<div style="text-align:center;padding:30px;color:var(--muted)"><i class="fas fa-ban" style="font-size:1.5rem;margin-bottom:8px;display:block"></i>No ${activeTab === 'ev' ? 'EV' : activeTab} parking available at this location</div>`;
+        }
+
+        const canBook = selectedSlot && selectedSlot.status === 'available';
+        const bookBtnCls = canBook ? 'enabled' : 'disabled';
+
+        document.getElementById('panelContent').innerHTML = `
+            <div style="padding:24px">
+                <div class="flex items-start justify-between mb-4">
+                    <div style="flex:1">
+                        <h2 class="text-lg font-bold" style="line-height:1.3">${loc.name}</h2>
+                        <p style="color:var(--muted);font-size:.85rem;margin-top:4px"><i class="fas fa-map-marker-alt" style="margin-right:5px"></i>${loc.address}</p>
+                    </div>
+                    <button onclick="closePanel()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:1.1rem;padding:4px" aria-label="Close panel"><i class="fas fa-times"></i></button>
+                </div>
+                <div class="flex gap-3 mb-5" style="font-size:.82rem;color:var(--muted)">
+                    <span><i class="fas fa-clock" style="margin-right:4px"></i>${loc.hours}</span>
+                    <span><i class="fas fa-dollar-sign" style="margin-right:4px"></i>${loc.rate}</span>
+                </div>
+                <div class="flex gap-3 mb-5">
+                    ${loc.carTotal > 0 ? `<div class="stat-card ${activeTab==='car'?'active':''}" onclick="switchTab('car')">
+                        <i class="fas fa-car" style="color:var(--accent);font-size:1.1rem"></i>
+                        <div class="mono font-bold text-lg" style="color:var(--accent);margin-top:4px">${carAvail}<span style="color:var(--muted);font-size:.75rem;font-weight:400">/${loc.carTotal}</span></div>
+                        <div style="color:var(--muted);font-size:.72rem;margin-top:2px">Cars</div>
+                    </div>` : ''}
+                    ${loc.evTotal > 0 ? `<div class="stat-card ${activeTab==='ev'?'ev-active':''}" onclick="switchTab('ev')">
+                        <i class="fas fa-bolt" style="color:var(--ev);font-size:1.1rem"></i>
+                        <div class="mono font-bold text-lg" style="color:var(--ev);margin-top:4px">${evAvail}<span style="color:var(--muted);font-size:.75rem;font-weight:400">/${loc.evTotal}</span></div>
+                        <div style="color:var(--muted);font-size:.72rem;margin-top:2px">EVs</div>
+                    </div>` : ''}
+                    ${loc.bikeTotal > 0 ? `<div class="stat-card ${activeTab==='bike'?'bike-active':''}" onclick="switchTab('bike')">
+                        <i class="fas fa-motorcycle" style="color:var(--bike);font-size:1.1rem"></i>
+                        <div class="mono font-bold text-lg" style="color:var(--bike);margin-top:4px">${bikeAvail}<span style="color:var(--muted);font-size:.75rem;font-weight:400">/${loc.bikeTotal}</span></div>
+                        <div style="color:var(--muted);font-size:.72rem;margin-top:2px">Bikes</div>
+                    </div>` : ''}
+                </div>
+                <div class="flex gap-2 mb-4">${tabBtns}</div>
+                <div class="mb-3 flex items-center justify-between" style="font-size:.82rem">
+                    <span style="color:var(--muted)">${currentAvail} of ${currentTotal} slots available</span>
+                    <div class="flex items-center gap-1">
+                        <div style="width:100px;height:6px;background:var(--bg2);border-radius:3px;overflow:hidden">
+                            <div style="width:${currentTotal > 0 ? (currentAvail/currentTotal*100) : 0}%;height:100%;border-radius:3px;background:${activeTab==='car'?'var(--accent)':activeTab==='ev'?'var(--ev)':'var(--bike)'};transition:width .5s"></div>
+                        </div>
+                        <span class="mono" style="color:var(--muted);font-size:.75rem">${currentTotal > 0 ? Math.round(currentAvail/currentTotal*100) : 0}%</span>
+                    </div>
+                </div>
+                ${slotHtml}
+                <div class="flex items-center gap-4 mt-4 mb-4" style="font-size:.78rem;color:var(--muted)">
+                    <span class="flex items-center gap-1"><div class="legend-dot" style="background:rgba(0,230,138,.3);border:1px solid rgba(0,230,138,.5)"></div>Available</span>
+                    <span class="flex items-center gap-1"><div class="legend-dot" style="background:rgba(255,71,87,.2);border:1px solid rgba(255,71,87,.4)"></div>Occupied</span>
+                    <span class="flex items-center gap-1"><div class="legend-dot" style="background:rgba(255,190,11,.15);border:1px solid rgba(255,190,11,.4)"></div>Reserved</span>
+                </div>
+                <button class="btn-book ${bookBtnCls}" onclick="bookSlot()" ${canBook?'':'disabled'}>
+                    ${selectedSlot ? `Book Slot ${selectedSlot.id}` : 'Select a slot to book'}
+                </button>
+            </div>
+        `;
+    }
+
+    function switchTab(tab) {
+        activeTab = tab;
+        selectedSlot = null;
+        renderPanel();
+    }
+
+    function selectSlot(slotId) {
+        if (!selectedLocation) return;
+        const slots = activeTab === 'car' ? selectedLocation.carSlots : activeTab === 'ev' ? selectedLocation.evSlots : selectedLocation.bikeSlots;
+        const slot = slots.find(s => s.id === slotId);
+        if (slot && slot.status === 'available') {
+            selectedSlot = slot;
+            renderPanel();
+        }
+    }
+
+    // ==================== BOOKINGS ====================
+    function bookSlot() {
+        if (!selectedSlot || !selectedLocation) return;
+        const slot = selectedSlot;
+        // Find actual slot object in location data
+        const slots = activeTab === 'car' ? selectedLocation.carSlots : activeTab === 'ev' ? selectedLocation.evSlots : selectedLocation.bikeSlots;
+        const actualSlot = slots.find(s => s.id === slot.id);
+        if (!actualSlot || actualSlot.status !== 'available') return;
+
+        actualSlot.status = 'reserved';
+        const booking = {
+            id: Date.now(),
+            locationId: selectedLocation.id,
+            locationName: selectedLocation.name,
+            type: activeTab,
+            slotId: slot.id,
+            time: new Date().toISOString(),
+            rate: selectedLocation.rate
+        };
+        bookings.push(booking);
+        localStorage.setItem('ps_bookings', JSON.stringify(bookings));
+        selectedSlot = null;
+        updateMarker(selectedLocation);
+        updateStatsBar();
+        renderPanel();
+        showToast(`Slot ${slot.id} booked at ${selectedLocation.name}`, 'success');
+    }
+
+    function cancelBooking(id) {
+        const idx = bookings.findIndex(b => b.id === id);
+        if (idx === -1) return;
+        const booking = bookings[idx];
+        // Free the slot
+        const loc = locations.find(l => l.id === booking.locationId);
+        if (loc) {
+            const slots = booking.type === 'car' ? loc.carSlots : booking.type === 'ev' ? loc.evSlots : loc.bikeSlots;
+            const slot = slots.find(s => s.id === booking.slotId);
+            if (slot && slot.status === 'reserved') slot.status = 'available';
+            updateMarker(loc);
+            updateStatsBar();
+            if (selectedLocation && selectedLocation.id === loc.id) renderPanel();
+        }
+        bookings.splice(idx, 1);
+        localStorage.setItem('ps_bookings', JSON.stringify(bookings));
+        renderBookingsModal();
+        showToast('Booking cancelled', 'info');
+    }
+
+    function openBookings() {
+        closeDropdown();
+        renderBookingsModal();
+        document.getElementById('bookingsModal').classList.add('active');
+    }
+    function closeBookings() {
+        document.getElementById('bookingsModal').classList.remove('active');
+    }
+    function renderBookingsModal() {
+        const container = document.getElementById('bookingsList');
+        if (bookings.length === 0) {
+            container.innerHTML = `<div style="text-align:center;padding:40px 20px;color:var(--muted)"><i class="fas fa-parking" style="font-size:2rem;margin-bottom:12px;display:block;opacity:.4"></i>No active bookings</div>`;
+            return;
+        }
+        container.innerHTML = bookings.map(b => {
+            const typeIcon = b.type === 'car' ? 'fa-car' : b.type === 'ev' ? 'fa-bolt' : 'fa-motorcycle';
+            const typeColor = b.type === 'car' ? 'var(--accent)' : b.type === 'ev' ? 'var(--ev)' : 'var(--bike)';
+            const time = new Date(b.time).toLocaleString();
+            return `<div class="booking-card">
+                <div>
+                    <div class="flex items-center gap-2 mb-1">
+                        <i class="fas ${typeIcon}" style="color:${typeColor}"></i>
+                        <span class="font-semibold text-sm">${b.slotId}</span>
+                        <span class="mono" style="font-size:.72rem;color:var(--muted);background:var(--bg);padding:2px 6px;border-radius:4px">${b.type.toUpperCase()}</span>
+                    </div>
+                    <div style="color:var(--muted);font-size:.8rem">${b.locationName}</div>
+                    <div style="color:var(--muted);font-size:.75rem;margin-top:2px">${time} &middot; ${b.rate}</div>
+                </div>
+                <button class="cancel-btn" onclick="cancelBooking(${b.id})">Cancel</button>
+            </div>`;
+        }).join('');
+    }
+
+    // ==================== FILTERS & SEARCH ====================
+    function setFilter(filter, btn) {
+        activeFilter = filter;
+        document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        addMarkers();
+    }
+    function handleSearch(query) {
+        addMarkers();
+    }
+
+    // ==================== USER DROPDOWN ====================
+    function toggleDropdown() {
+        document.getElementById('userDropdown').classList.toggle('show');
+    }
+    function closeDropdown() {
+        document.getElementById('userDropdown').classList.remove('show');
+    }
+    document.addEventListener('click', (e) => {
+        if (!e.target.closest('#userBtn') && !e.target.closest('#userDropdown')) closeDropdown();
+    });
+
+    // ==================== STATS BAR ====================
+    function updateStatsBar() {
+        const totalSlots = locations.reduce((s,l) => s + getTotalSlots(l), 0);
+        const totalAvail = locations.reduce((s,l) => s + getTotalAvailable(l), 0);
+        const totalEv = locations.reduce((s,l) => s + getAvailable(l,'ev'), 0);
+        const totalBike = locations.reduce((s,l) => s + getAvailable(l,'bike'), 0);
+        document.getElementById('statsBar').innerHTML = `
+            <span><i class="fas fa-parking" style="color:var(--accent);margin-right:5px"></i><span class="mono font-semibold">${totalAvail}</span><span style="color:var(--muted)">/${totalSlots}</span> <span style="color:var(--muted)">Total Slots</span></span>
+            <span><i class="fas fa-bolt" style="color:var(--ev);margin-right:5px"></i><span class="mono font-semibold">${totalEv}</span> <span style="color:var(--muted)">EV Free</span></span>
+            <span><i class="fas fa-motorcycle" style="color:var(--bike);margin-right:5px"></i><span class="mono font-semibold">${totalBike}</span> <span style="color:var(--muted)">Bike Free</span></span>
+            <span style="color:var(--muted)"><i class="fas fa-ticket" style="margin-right:5px"></i><span class="mono font-semibold" style="color:var(--text)">${bookings.length}</span> Active Bookings</span>
+        `;
+    }
+
+    // ==================== REAL-TIME SIMULATION ====================
+    function startSimulation() {
+        if (simInterval) clearInterval(simInterval);
+        simInterval = setInterval(() => {
+            // Randomly change 1-3 slots across all locations
+            const changes = Math.floor(Math.random() * 3) + 1;
+            for (let i = 0; i < changes; i++) {
+                const loc = locations[Math.floor(Math.random() * locations.length)];
+                const typeArr = loc.types;
+                const type = typeArr[Math.floor(Math.random() * typeArr.length)];
+                const slots = type === 'car' ? loc.carSlots : type === 'ev' ? loc.evSlots : loc.bikeSlots;
+                if (slots.length === 0) continue;
+                const slot = slots[Math.floor(Math.random() * slots.length)];
+                if (slot.status === 'reserved') continue; // Don't touch reserved
+
+                if (slot.status === 'available') {
+                    slot.status = 'occupied';
+                    if (type === 'ev') slot.charging = Math.random() > 0.3;
+                } else {
+                    slot.status = 'available';
+                    if (type === 'ev') slot.charging = false;
+                }
+                updateMarker(loc);
+            }
+            updateStatsBar();
+            // Re-render panel if open
+            if (selectedLocation) renderPanel();
+        }, 4000);
+    }
+
+    // ==================== TOASTS ====================
+    function showToast(msg, type = 'info') {
+        const container = document.getElementById('toasts');
+        const toast = document.createElement('div');
+        toast.className = `toast ${type}`;
+        const icon = type === 'success' ? 'fa-check-circle' : type === 'error' ? 'fa-exclamation-circle' : 'fa-info-circle';
+        const iconColor = type === 'success' ? 'var(--accent)' : type === 'error' ? 'var(--danger)' : 'var(--bike)';
+        toast.innerHTML = `<i class="fas ${icon}" style="color:${iconColor};font-size:1rem"></i><span>${msg}</span>`;
+        container.appendChild(toast);
+        setTimeout(() => {
+            toast.style.animation = 'slideOut .3s ease forwards';
+            setTimeout(() => toast.remove(), 300);
+        }, 3500);
+    }
+
+    // ==================== INIT ====================
+    window.addEventListener('DOMContentLoaded', () => {
+        // Show splash then check auth
+        setTimeout(() => {
+            document.getElementById('splash').classList.add('hide');
+            setTimeout(() => {
+                if (checkSession()) {
+                    enterDashboard();
+                } else {
+                    document.getElementById('auth').classList.add('active');
+                }
+            }, 500);
+        }, 1500);
+    });
+
+    // Close panel on Escape
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            closePanel();
+            closeBookings();
+            closeDropdown();
+        }
+    });
+    </script>
+</body>
+</html>
